@@ -77,6 +77,31 @@ sources:
 - 編譯期：ASan（測試）、CFI、`-fstack-protector`。
 - 設計：所有權單一化（Rust 的 borrow checker 在編譯期擋掉，列 [[待進行]] 的 Rust 對照）。
 
+## 偵測：怎麼從 shell 看出 hijack（`src/uaf_detect_demo.c`）
+
+**先講殘酷事實：成功的 _silent_ hijack（只改資料、不「做事」）從 shell 幾乎看不到**——
+exit code = 0、不 crash、不報錯。這正是記憶體漏洞可怕的地方。能看出來的分三種：
+
+| 方法 | 看什麼 | 什麼時候有效 |
+|---|---|---|
+| **build 插樁** | ASan（印 heap-use-after-free、exit≠0）、CFI（`-fsanitize=cfi` 跳錯當場擋） | 測試階段，最可靠 |
+| **看 side-effect** | strace 的 syscall、`ps`、`ss` | 攻擊者一旦要「做事」（exec／連網／讀檔）就露餡 |
+| **它剛好失敗** | 跳到爛地址 → SIGSEGV → `echo $?` = 139 | 攻擊者不精準時 |
+
+**strace 實證**（demo 的 attacker 改成 `execl("/bin/echo", …)`）：
+
+```
+$ strace -f -e trace=execve ./uaf_detect_demo
+execve("./uaf_detect_demo", …) = 0            ← 正常啟動
+execve("/bin/echo", ["echo","[HIJACK]…"]) = 0  ← 💥 鐵證
+```
+
+第二個 `execve` 就是證據：**main() 從頭到尾沒寫過任何 exec，它出現只因為被劫持的函式跑了。**
+程式再怎麼「以為自己正常」，只要對 kernel 發了不該發的 syscall，strace 就看得到。
+
+> 這正是真實世界防守的原理：**EDR / seccomp / auditd 都在 syscall 這層盯「程式有沒有做它不該做的事」**。
+> 接 [[ai-security-learning-hardening]]：auditd 開起來就是在做這件事。
+
 ## See Also
 
 - [[use-after-free]] — bug 本體（CWE-416）
