@@ -2,3 +2,4 @@ src/uaf_hijack_demo
 src/uaf_hijack_demo_asan
 src/l1_int_uaf_asan
 _ext/
+src/uaf_detect_demo
