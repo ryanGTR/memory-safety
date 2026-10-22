@@ -14,11 +14,39 @@
 
 ## 使用方式
 
+一鍵管線（根目錄跑，自動掃 `src/*.c`）：
+
+```sh
+make check      # 靜態：不執行就抓（gcc -fanalyzer + cppcheck）
+make test       # 動態：ASan 編起來跑，看它當場攔截
+make valgrind   # 動態：valgrind 版（leak 更細）
+make            # = check + test
+```
+
+單一範例手動跑（原始作法）：
+
 ```sh
 cd src
 gcc -g -fsanitize=address 02_uaf.c -o 02_uaf
 ./02_uaf          # ASan 會攔住並印出報告
 ```
+
+### 為什麼要兩層（靜態 + 動態）
+
+同一支 `02_uaf.c`，兩層抓到的東西不一樣：
+
+| | 靜態 `make check` | 動態 `make test` |
+|---|---|---|
+| 要不要執行 | 否，編譯期/掃源碼 | 要，實際跑 |
+| 抓到 use-after-free | ✅（CWE-416，附 alloc→free→use 事件軌跡） | ✅（ASan 執行時攔截） |
+| 抓到「malloc 沒檢查就用」 | ✅（CWE-690） | ❌ runtime malloc 幾乎不會失敗，**ASan 永遠踩不到** |
+| 沒被測試踩到的路徑 | ✅ 看得到 | ❌ 看不到（absence of evidence） |
+
+重點：**動態只證明「跑到的路徑乾淨」，不是「乾淨」**。靜態補的就是這個盲區。
+兩層都要——這也是 Google（Tricorder + sanitizers）的做法：靜態 shift-left、動態跑測試、各補對方的盲點。
+
+> 下一層（待裝）：[Semgrep](https://semgrep.dev) 寫自己的規則，把 wiki 裡每個 bug 模式變成「會即時攔你」的 linter。
+> 安裝：`pipx install semgrep` 或 `pacman -S semgrep`（AUR）。
 
 ## 結構
 

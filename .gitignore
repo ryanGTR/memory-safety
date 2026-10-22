@@ -1,5 +1,10 @@
+# 編譯產物（原始碼才進版控，binary 不進）
+src/*_asan
+src/*_vg
+# 無副檔名的編譯產物（跟 .c 同名）
+src/0*_uaf
 src/uaf_hijack_demo
-src/uaf_hijack_demo_asan
-src/l1_int_uaf_asan
-_ext/
 src/uaf_detect_demo
+src/l1_int_uaf_asan
+# NIST Juliet 外部測試集（太大，另外下載）
+_ext/
