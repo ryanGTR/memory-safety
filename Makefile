@@ -13,9 +13,16 @@ SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
 CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c11 --quiet
 
-.PHONY: all check deep test valgrind clean
+.PHONY: all check deep semgrep test valgrind clean
 
 all: check test
+
+SEMGREP := PATH="$(HOME)/.local/bin:$$PATH" semgrep --config .semgrep.yml --metrics=off
+
+## 自訂規則層 —— 你 .semgrep.yml 裡寫的「個人版 C-Fortify」規則
+semgrep:
+	@echo "═══ 自訂 Semgrep 規則（.semgrep.yml）═══"
+	@$(SEMGREP) src/ 2>&1 | grep -vE 'Scanning|metrics|^\s*$$|━|Ran |Scan Status|Scan Summary|Scan completed|For a detailed|limited to files' || true
 
 ## 重工具層（按需跑，不塞進每次 check）—— clang-tidy + scan-build
 ## 跨函式、路徑敏感；威力在「多函式真實碼」才顯現，單函式玩具上多半和 -fanalyzer 重疊
@@ -39,7 +46,9 @@ check:
 		printf "\n── cppcheck: $$f ──\n"; \
 		$(CPPCHECK) $$f 2>&1 || true; \
 	done
-	@printf "\n═══ 靜態完成。有紅字＝它幫你抓到了 ═══"
+	@printf "\n── 自訂 Semgrep 規則 ──\n"
+	@$(SEMGREP) src/ 2>&1 | grep -E '❯❱|Findings:|┆' || echo "  (Semgrep 沒裝或無 finding)"
+	@printf "\n═══ 靜態完成。有紅字＝它幫你抓到了 ═══\n"
 
 ## 動態層 —— ASan 編起來跑，看它當場攔截（預期會攔，攔到就對了）
 test:

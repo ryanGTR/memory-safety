@@ -1,0 +1,28 @@
+# 自訂記憶體爛寫法規則 —— 你的「個人版 C-Fortify」起點
+#
+# 跑法：semgrep --config .semgrep.yml src/   （或 make semgrep）
+# 原則（抄 Google）：只留你真的會動手修的規則；某條開始亂叫就刪掉或收窄。
+# 每撞到一個新爛寫法 → 來這加一條 → 存檔，以後任何人再這樣寫都當場被攔。
+
+rules:
+  # ── 規則 1：strcpy 不帶長度 ── 會打中 02_uaf.c 的 strcpy(u->name, "ryan")
+  - id: unbounded-strcpy
+    languages: [c]
+    severity: WARNING
+    message: >-
+      strcpy 不檢查長度，來源比目標長就 buffer overflow。
+      改用 snprintf($DST, sizeof($DST), ...) 或帶大小的 strncpy。
+    pattern: strcpy($DST, $SRC)
+
+  # ── 規則 2：free 後沒設 NULL ── 會打中 02_uaf.c 的 free(u)（dangling → UAF 根因）
+  - id: free-without-nulling
+    languages: [c]
+    severity: WARNING
+    message: >-
+      free 之後沒把指標設 NULL，就留下 dangling pointer，後面再碰它就是 use-after-free。
+      慣例：free($P); $P = NULL;
+    patterns:
+      - pattern: free($P);
+      - pattern-not: |
+          free($P);
+          $P = NULL;
