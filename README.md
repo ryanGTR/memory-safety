@@ -48,7 +48,8 @@ gcc -g -fsanitize=address 02_uaf.c -o 02_uaf
 兩層都要——這也是 Google（Tricorder + sanitizers）的做法：靜態 shift-left、動態跑測試、各補對方的盲點。
 
 > 下一層（待裝）：[Semgrep](https://semgrep.dev) 寫自己的規則，把 wiki 裡每個 bug 模式變成「會即時攔你」的 linter。
-> 安裝：`pipx install semgrep` 或 `pacman -S semgrep`（AUR）。
+> 已裝 semgrep 1.182（pipx）。規則＝你自己的 `.semgrep.yml`（2 條）＋社群 `_ext/semgrep-rules/c`（16 條，git clone，gitignore）。
+> 更新社群規則：`git -C _ext/semgrep-rules pull`。跑：`make semgrep`。
 
 ## 結構
 
