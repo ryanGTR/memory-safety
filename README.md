@@ -20,6 +20,8 @@
 make check      # 靜態：不執行就抓（gcc -fanalyzer + cppcheck）
 make test       # 動態：ASan 編起來跑，看它當場攔截
 make valgrind   # 動態：valgrind 版（leak 更細）
+make deep       # 重工具（clang-tidy+scan-build，跨函式；威力在真實多函式碼，單函式玩具上多半冗餘）
+              #   完整發揮需 compile_commands.json（bear -- make），否則 clang-analyzer 編不過＝只剩風格雜訊
 make            # = check + test
 ```
 

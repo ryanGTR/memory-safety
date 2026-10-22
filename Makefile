@@ -13,9 +13,22 @@ SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
 CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c11 --quiet
 
-.PHONY: all check test valgrind clean
+.PHONY: all check deep test valgrind clean
 
 all: check test
+
+## 重工具層（按需跑，不塞進每次 check）—— clang-tidy + scan-build
+## 跨函式、路徑敏感；威力在「多函式真實碼」才顯現，單函式玩具上多半和 -fanalyzer 重疊
+## 用法：make deep FILE=path/to/real.c（預設掃 src/）
+FILE ?= $(SRCS)
+deep:
+	@echo "═══ 重工具（clang-tidy + scan-build，跨函式）═══"
+	@for f in $(FILE); do \
+		printf "\n── clang-tidy: %s ──\n" "$$f"; \
+		clang-tidy --checks='-*,clang-analyzer-*,bugprone-*,cert-*' $$f -- -std=c11 2>&1 | grep -vE 'Error while|compilation database|warnings? generated|Suppressed|-header-filter|^$$' || true; \
+		printf "\n── scan-build: %s ──\n" "$$f"; \
+		scan-build -o /tmp/scan-build-out gcc -c $$f -o /dev/null 2>&1 | grep -iE 'warning|bug found|No bugs' || true; \
+	done
 
 ## 靜態層 —— 不執行就抓（這層是 ASan 看不到的盲區補丁）
 check:
