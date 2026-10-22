@@ -13,9 +13,13 @@ SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
 CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c11 --quiet
 
-.PHONY: all check deep semgrep test valgrind clean
+.PHONY: all full check deep semgrep test valgrind clean
 
+# 預設：快的日常檢查（靜態三層 + ASan 動態），不含慢的 deep/valgrind
 all: check test
+
+# 全跑：連重工具 deep + valgrind 也跑（慢，偶爾完整掃一次用）
+full: check test deep valgrind
 
 # 社群 C 規則（semgrep-rules repo 的 c/，16 條，clone 在 _ext/，gitignore 不進版控）
 # 更新：git -C _ext/semgrep-rules pull   ｜ 沒 clone 也不影響，只跑你自己的規則
