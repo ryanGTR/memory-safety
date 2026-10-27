@@ -6,5 +6,9 @@ src/0*_uaf
 src/uaf_hijack_demo
 src/uaf_detect_demo
 src/l1_int_uaf_asan
+src/ignored_status_demo
 # NIST Juliet 外部測試集（太大，另外下載）
 _ext/
+# CodeQL 資料庫（make codeql 產生）
+_codeql-db/
+codeql/.codeql/

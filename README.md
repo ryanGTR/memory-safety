@@ -17,7 +17,8 @@
 一鍵管線（根目錄跑，自動掃 `src/*.c`）：
 
 ```sh
-make check      # 靜態：不執行就抓（gcc -fanalyzer + cppcheck）
+make check      # 靜態：不執行就抓（gcc -fanalyzer + cppcheck + semgrep + 自訂 CodeQL）
+make codeql     # 只跑自訂 CodeQL 查詢（codeql/*.ql；沒裝 CodeQL 就跳過）
 make test       # 動態：ASan 編起來跑，看它當場攔截
 make valgrind   # 動態：valgrind 版（leak 更細）
 make deep       # 重工具（clang-tidy+scan-build，跨函式；威力在真實多函式碼，單函式玩具上多半冗餘）
@@ -51,15 +52,23 @@ gcc -g -fsanitize=address 02_uaf.c -o 02_uaf
 > 已裝 semgrep 1.182（pipx）。規則＝你自己的 `.semgrep.yml`（2 條）＋社群 `_ext/semgrep-rules/c`（16 條，git clone，gitignore）。
 > 更新社群規則：`git -C _ext/semgrep-rules pull`。跑：`make semgrep`。
 
+> 自訂 CodeQL 層（2026-10-27 加）：抓「契約型」bug——semgrep 看不穿巨集、社群包門檻太高時用。
+> 一類 bug 一條查詢，放 `codeql/*.ql`。CodeQL bundle 解在 `~/.local/share/codeql`（刪資料夾即移除）。
+> 由來與實測對照見 [[ignored-return-status]]（brotli CVE-2026-111497：9 種工具只有 nodiscard 和自訂 CodeQL 抓到）。
+
 ## 結構
 
 ```
 memory-safety/
 ├── README.md        # 本檔
 ├── src/             # 一個 bug 一個最小 .c
-│   └── 02_uaf.c
+│   ├── 02_uaf.c
+│   └── ignored_status_demo.c   # 回傳值被丟掉 → 越界寫（仿 brotli）
+├── codeql/          # 自訂 CodeQL 查詢（一類一條）
+│   └── ignored-status.ql
 └── wiki/            # 一課一頁，Karpathy 模式
-    └── use-after-free.md
+    ├── use-after-free.md
+    └── ignored-return-status.md
 ```
 
 ## 課綱（pilot 先做 UAF，其餘待逐課展開）
@@ -76,6 +85,7 @@ memory-safety/
 | 08 | type confusion | 待 |
 | 09 | UAF → 控制流（純概念，待進行） | 待 |
 | 10 | memory leak（對照組） | 待 |
+| 延伸 | **回傳狀態被丟掉 → 越界寫**（brotli CVE-2026-111497） | ✅ 2026-10-27 |
 
 ## 參考資源
 

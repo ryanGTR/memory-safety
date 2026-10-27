@@ -11,9 +11,9 @@
 
 SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
-CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c11 --quiet
+CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c23 --quiet
 
-.PHONY: all full check deep semgrep test valgrind clean
+.PHONY: all full check deep semgrep codeql codeql-scan test valgrind clean
 
 # 預設：快的日常檢查（靜態三層 + ASan 動態），不含慢的 deep/valgrind
 all: check test
@@ -55,7 +55,28 @@ check:
 	done
 	@printf "\n── 自訂 Semgrep 規則 ──\n"
 	@$(SEMGREP) src/ 2>&1 | grep -E '❯❱|Findings:|┆' || echo "  (Semgrep 沒裝或無 finding)"
+	@printf "\n── 自訂 CodeQL 查詢（codeql/）──\n"
+	@$(MAKE) --no-print-directory codeql-scan
 	@printf "\n═══ 靜態完成。有紅字＝它幫你抓到了 ═══\n"
+
+## 自訂 CodeQL 層 —— 「契約型」bug（semgrep 看不穿巨集、社群包門檻太高時用）
+## 一類 bug 一條查詢，放 codeql/*.ql；資料庫建在 _codeql-db/（gitignore）
+## 沒裝 CodeQL 就跳過：bundle 解在 ~/.local/share/codeql
+CODEQL ?= $(HOME)/.local/share/codeql/codeql
+codeql:
+	@echo "═══ 自訂 CodeQL 查詢（codeql/）═══"
+	@$(MAKE) --no-print-directory codeql-scan
+
+codeql-scan:
+	@if [ ! -x $(CODEQL) ]; then echo "  (CodeQL 沒裝，跳過)"; exit 0; fi; \
+	$(CODEQL) database create _codeql-db --language=c-cpp --source-root=. --overwrite \
+		--command=codeql/build.sh >/dev/null 2>&1 \
+		|| { echo "  (建資料庫失敗)"; exit 0; }; \
+	$(CODEQL) database analyze _codeql-db codeql/ --format=csv --output=_codeql-db/out.csv \
+		--threads=0 >/dev/null 2>&1 || { echo "  (分析失敗)"; exit 0; }; \
+	if [ -s _codeql-db/out.csv ]; then \
+		awk -F'","' '{ print "  ❯ " $$5 ":" $$6 "  " $$4 }' _codeql-db/out.csv; \
+	else echo "  (無 finding)"; fi
 
 ## 動態層 —— ASan 編起來跑，看它當場攔截（預期會攔，攔到就對了）
 test:
