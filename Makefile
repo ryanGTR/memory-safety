@@ -3,7 +3,8 @@
 # 兩層檢查，抓的東西不一樣：
 #   make check   靜態：不執行，編譯期/掃源碼就抓（gcc -fanalyzer + cppcheck）
 #                → 連「沒跑到的路徑」和「malloc 沒檢查」都看得到
-#   make test    動態：用 ASan 編起來跑，抓「實際執行踩到」的 leak/UAF
+#   make test    動態：用 ASan+UBSan 編起來跑，抓「實際執行踩到」的 leak/UAF/UB
+#   make overflow 動態：clang 抓 unsigned 繞回（按需，非 UB 所以預設不開）
 #   make valgrind 動態：valgrind 版（抓 leak 更細）
 #   make         = check + test
 #
@@ -13,7 +14,7 @@ SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
 CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c23 --quiet
 
-.PHONY: all full check deep semgrep codeql codeql-scan test valgrind clean
+.PHONY: all full check deep semgrep codeql codeql-scan test overflow valgrind clean
 
 # 預設：快的日常檢查（靜態三層 + ASan 動態），不含慢的 deep/valgrind
 all: check test
@@ -78,14 +79,26 @@ codeql-scan:
 		awk -F'","' '{ print "  ❯ " $$5 ":" $$6 "  " $$4 }' _codeql-db/out.csv; \
 	else echo "  (無 finding)"; fi
 
-## 動態層 —— ASan 編起來跑，看它當場攔截（預期會攔，攔到就對了）
+## 動態層 —— ASan + UBSan 編起來跑，看它當場攔截（預期會攔，攔到就對了）
+## UBSan 抓「未定義行為」（signed 溢位、移位超界、NULL+offset…），業界標配、幾乎 0 成本
 test:
-	@echo "═══ 動態（AddressSanitizer）═══"
+	@echo "═══ 動態（AddressSanitizer + UndefinedBehaviorSanitizer）═══"
 	@for f in $(SRCS); do \
 		bin=$${f%.c}_asan; \
-		gcc $(CFLAGS_WARN) -fsanitize=address $$f -o $$bin 2>/dev/null; \
-		printf "\n── 執行 $$bin（預期 ASan 攔截）──\n"; \
-		./$$bin || echo "  ↑ ASan 攔截，退出碼 $$?（這是預期的，代表抓到了）"; \
+		gcc $(CFLAGS_WARN) -fsanitize=address,undefined $$f -o $$bin 2>/dev/null; \
+		printf "\n── 執行 $$bin（預期 ASan/UBSan 攔截）──\n"; \
+		./$$bin || echo "  ↑ 被攔截，退出碼 $$?（這是預期的，代表抓到了）"; \
+	done
+
+## unsigned 繞回（按需，不進 make）—— 0-1 變 4294967295 在 C 是「定義行為」，UBSan 不管
+## clang 專屬旗標；hash/加密碼常故意靠繞回，開了會吵，所以只在追根因時跑
+overflow:
+	@echo "═══ unsigned 繞回（clang -fsanitize=unsigned-integer-overflow）═══"
+	@for f in $(SRCS); do \
+		bin=$${f%.c}_uo; \
+		clang $(CFLAGS_WARN) -fsanitize=unsigned-integer-overflow $$f -o $$bin 2>/dev/null; \
+		printf "\n── 執行 $$bin ──\n"; \
+		timeout 5 ./$$bin 2>&1 | grep -m3 'runtime error' || echo "  (無繞回報告)"; \
 	done
 
 ## valgrind 版（抓 leak 更細，不需 ASan 旗標）
@@ -99,4 +112,4 @@ valgrind:
 	done
 
 clean:
-	rm -f src/*_asan src/*_vg $(basename $(SRCS))
+	rm -f src/*_asan src/*_vg src/*_uo $(basename $(SRCS))

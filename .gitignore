@@ -1,6 +1,7 @@
 # 編譯產物（原始碼才進版控，binary 不進）
 src/*_asan
 src/*_vg
+src/*_uo
 # 無副檔名的編譯產物（跟 .c 同名）
 src/0*_uaf
 src/uaf_hijack_demo
