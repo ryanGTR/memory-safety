@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# scan-c — 對「單檔、有 main() 可直接跑」的 C 檔跑整套記憶體檢查
+#
+# 用法：scan-c foo.c [bar.c ...]
+# 四層：gcc -fanalyzer / cppcheck（靜態，不執行）＋ ASan+UBSan / TSan（動態，編起來跑）
+#
+# 這是 memory-safety pipeline 的「可攜單檔版」：不綁 src/ 目錄，放哪都能跑。
+# 裝成全域指令：ln -s ~/Documents/memory-safety/tools/scan-c ~/.local/bin/scan-c
+#
+# 限制：只適合「單檔獨立程式」。需要別的 .c／header／build system 的真實專案會編不起來，
+# 那種請走專案版（bear -- make 生 compile_commands.json + 用專案 build 開 -fsanitize）。
+set -u
+
+CFLAGS="-g -Wall -Wextra"
+RUN_TIMEOUT=15
+CC="${CC:-gcc}"
+
+if [ $# -eq 0 ]; then
+	echo "用法：scan-c foo.c [bar.c ...]" >&2
+	exit 2
+fi
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+scan_one() {
+	local f="$1"
+	local tmp rc out
+	if [ ! -f "$f" ]; then
+		echo "✗ 找不到檔案：$f" >&2
+		return 2
+	fi
+	echo "══════════════════════════════════════════════"
+	echo "檔案：$f"
+	echo "══════════════════════════════════════════════"
+
+	# 先確認它真的能單檔編（不能就是『不是單檔玩具』，提早講清楚）
+	if ! $CC $CFLAGS -fsyntax-only "$f" 2>/dev/null; then
+		echo "⚠ 單檔編不起來（多半缺 header／要連其他 .c）。"
+		echo "  這不是單檔獨立程式 → 請走專案版（bear -- make + 專案 build 開 sanitizer）。"
+		echo "  下面照跑，輸出可能只是一堆缺檔錯誤。"
+	fi
+
+	tmp="$(mktemp -d)"
+	trap 'rm -rf "$tmp"' RETURN
+
+	echo
+	echo "── [靜態] gcc -fanalyzer ──"
+	if $CC -fanalyzer $CFLAGS -c "$f" -o /dev/null 2>"$tmp/fa"; then :; fi
+	if grep -qE '\-Wanalyzer|use-after-free|double-free|leak' "$tmp/fa"; then
+		grep -E 'warning:|note:' "$tmp/fa" | head -20
+		echo "  → 抓到"
+	else
+		echo "  → 沒報（不代表沒事，只代表這層沒看到）"
+	fi
+
+	echo
+	echo "── [靜態] cppcheck ──"
+	if have cppcheck; then
+		cppcheck --enable=warning,performance,portability --inconclusive \
+			--std=c23 --quiet "$f" 2>"$tmp/cp"
+		if grep -qE ':[0-9]+:[0-9]+: (error|warning)' "$tmp/cp"; then
+			cat "$tmp/cp" | head -20; echo "  → 抓到"
+		else
+			echo "  → 沒報"
+		fi
+	else
+		echo "  (cppcheck 沒裝，略過)"
+	fi
+
+	echo
+	echo "── [動態] ASan + UBSan（編起來跑）──"
+	if $CC $CFLAGS -fsanitize=address,undefined "$f" -o "$tmp/asan" 2>"$tmp/aerr"; then
+		timeout "$RUN_TIMEOUT" "$tmp/asan" >"$tmp/aout" 2>&1
+		rc=$?
+		if grep -qE 'AddressSanitizer|runtime error' "$tmp/aout"; then
+			grep -E 'ERROR|runtime error|SUMMARY' "$tmp/aout" | head -8
+			echo "  → 執行時攔到（退出碼 $rc）"
+		else
+			echo "  → 跑完沒報（這次執行到的路徑乾淨）"
+		fi
+	else
+		echo "  (編不起來，略過；見上面的 ⚠)"
+	fi
+
+	echo
+	echo "── [動態] TSan（抓 data race）──"
+	if $CC $CFLAGS -fsanitize=thread "$f" -o "$tmp/tsan" 2>"$tmp/terr"; then
+		timeout "$RUN_TIMEOUT" "$tmp/tsan" >"$tmp/tout" 2>&1
+		if grep -qE 'ThreadSanitizer' "$tmp/tout"; then
+			grep -E 'WARNING|SUMMARY' "$tmp/tout" | head -8
+			echo "  → 抓到（TSan；看上面是 data race 還是 use-after-free）"
+		else
+			echo "  → 沒報（沒 race，或這次沒交錯到）"
+		fi
+	else
+		echo "  (編不起來，略過)"
+	fi
+	echo
+}
+
+for f in "$@"; do
+	scan_one "$f"
+done
