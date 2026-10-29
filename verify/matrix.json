@@ -1,0 +1,32 @@
+{
+  "_doc": "偵測能力對照表（可程式化驗證版）。每一列是一個『假設』：某 bug 類別，哪個工具抓得到。",
+  "_doc2": "expect 值：CATCH＝該工具應報、MISS＝應抓不到、CATCH?＝碰運氣抓到（非決定性，不當失敗）。",
+  "_doc3": "跑 `make verify-matrix`：runner 真的把工具跑一遍、對照這裡。不一致＝紅字，代表你對工具的認知該更新了。",
+  "tools": ["fanalyzer", "cppcheck", "asan", "tsan"],
+  "cases": [
+    {
+      "file": "src/02_uaf.c",
+      "class": "use-after-free（單執行緒）",
+      "contract": "free 之後不得再透過該指標存取記憶體",
+      "expect": {"fanalyzer": "CATCH", "cppcheck": "CATCH", "asan": "CATCH", "tsan": "CATCH"}
+    },
+    {
+      "file": "src/ignored_status_demo.c",
+      "class": "回傳狀態被丟掉 → 越界（契約型，brotli CVE-2026-111497 類）",
+      "contract": "回傳的狀態碼必須被檢查，才可信任輸出長度/偏移",
+      "expect": {"fanalyzer": "MISS", "cppcheck": "CATCH", "asan": "CATCH", "tsan": "CATCH"}
+    },
+    {
+      "file": "src/uaf_detect_demo.c",
+      "class": "UAF → 函式指標劫持（記憶體被重用）",
+      "contract": "free 後該物件的函式指標不得再被呼叫",
+      "expect": {"fanalyzer": "CATCH", "cppcheck": "CATCH", "asan": "CATCH", "tsan": "MISS"}
+    },
+    {
+      "file": "src/uaf_hijack_demo.c",
+      "class": "UAF → 函式指標劫持（記憶體被重用）",
+      "contract": "free 後該物件的函式指標不得再被呼叫",
+      "expect": {"fanalyzer": "CATCH", "cppcheck": "CATCH", "asan": "CATCH", "tsan": "MISS"}
+    }
+  ]
+}
