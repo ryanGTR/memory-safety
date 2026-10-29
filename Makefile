@@ -14,7 +14,7 @@ SRCS := $(wildcard src/*.c)
 CFLAGS_WARN := -g -Wall -Wextra
 CPPCHECK := cppcheck --enable=warning,performance,portability --inconclusive --std=c23 --quiet
 
-.PHONY: all full check deep semgrep codeql codeql-scan test overflow valgrind clean
+.PHONY: all full check deep semgrep codeql codeql-scan test race user-test overflow valgrind clean
 
 # 預設：快的日常檢查（靜態三層 + ASan 動態），不含慢的 deep/valgrind
 all: check test
@@ -90,6 +90,22 @@ test:
 		./$$bin || echo "  ↑ 被攔截，退出碼 $$?（這是預期的，代表抓到了）"; \
 	done
 
+## race 層 —— ThreadSanitizer，抓「兩 thread 沒上鎖碰同一塊記憶體」，不用等 UAF 真的發生才報
+## 為什麼獨立一個 target：TSan 和 ASan 不能編進同一個 binary（連結衝突），所以分開編分開跑
+## 對應 CVE-2026-98432 這類 race-UAF：ASan 只在交錯剛好踩到時碰運氣，TSan 直接報 race 本身
+race:
+	@echo "═══ 動態（ThreadSanitizer，抓 data race）═══"
+	@for f in $(SRCS); do \
+		bin=$${f%.c}_tsan; \
+		gcc $(CFLAGS_WARN) -fsanitize=thread $$f -o $$bin 2>/dev/null; \
+		printf "\n── 執行 $$bin（有 race 才會報）──\n"; \
+		./$$bin 2>&1 | grep -m4 -E 'ThreadSanitizer|data race' || echo "  (無 race 報告)"; \
+	done
+
+## 使用者空間動態全套＝ASan/UBSan（抓 UAF/leak/UB）＋ TSan（抓 race）
+## kernel 不能用這些 sanitizer：KASAN/KCSAN/kmemleak 要編 kernel＋VM，見 ~/Documents/linux_kernel 的工具對應表
+user-test: test race
+
 ## unsigned 繞回（按需，不進 make）—— 0-1 變 4294967295 在 C 是「定義行為」，UBSan 不管
 ## clang 專屬旗標；hash/加密碼常故意靠繞回，開了會吵，所以只在追根因時跑
 overflow:
@@ -112,4 +128,4 @@ valgrind:
 	done
 
 clean:
-	rm -f src/*_asan src/*_vg src/*_uo $(basename $(SRCS))
+	rm -f src/*_asan src/*_tsan src/*_vg src/*_uo $(basename $(SRCS))
