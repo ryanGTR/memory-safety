@@ -27,6 +27,13 @@
       "class": "UAF → 函式指標劫持（記憶體被重用）",
       "contract": "free 後該物件的函式指標不得再被呼叫",
       "expect": {"fanalyzer": "CATCH", "cppcheck": "CATCH", "asan": "CATCH", "tsan": "MISS"}
+    },
+    {
+      "file": "src/race_demo.c",
+      "class": "data race（無鎖共享狀態；CVE-2026-98432 的本質）",
+      "contract": "跨執行緒共享的可變狀態必須有同步（鎖／atomic／RCU）",
+      "note": "真實 CVE 的 race 會進一步變 UAF；那時 ASan 只碰運氣抓到（CATCH?），穩定裁判是 TSan／kernel 的 KCSAN",
+      "expect": {"fanalyzer": "MISS", "cppcheck": "MISS", "asan": "MISS", "tsan": "CATCH"}
     }
   ]
 }
