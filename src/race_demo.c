@@ -1,8 +1,11 @@
-/* race_demo.c — 資料競爭（data race）最小示範，CVE-2026-98432 的本質（純教學）
+/* race_demo.c — 資料競爭（data race）最小示範（純教學）
  *
- * CVE-2026-98432 的根因是：一塊共享狀態（ireq_opt）被多顆 CPU 同時存取，
- * 其中一邊沒有適當同步就動它 → kernel 用「過一個 RCU grace period 才 free」來修。
- * 這裡抽掉 kernel 和 UAF，只留最乾淨的核心：兩條 thread 無鎖碰同一塊記憶體。
+ * 2026-10-31 更正：本檔原本寫「這是 CVE-2026-98432 的本質」，不對。
+ * 這支示範的是 lost update（兩條 thread 同時 ++，更新被蓋掉）。
+ * CVE-2026-98432 是「物件生命週期」問題：讀端在 rcu_read_lock() 下讀 ireq_opt，
+ * free 端卻用 plain kfree() 當場釋放 → UAF；兩邊都有同步，錯在 free 的時間點。
+ * 那個案例見 wiki/use-after-free.md「跨 thread 的生命週期 UAF」。
+ * 這裡只留最乾淨的競爭核心：兩條 thread 無鎖碰同一塊記憶體。
  *
  * 教學點（配 make verify-matrix 看）：
  *   - 靜態層（-fanalyzer / cppcheck）：看不到，它們不模擬跨 thread 的交錯

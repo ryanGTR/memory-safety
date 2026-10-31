@@ -2,12 +2,13 @@
 title: Use-After-Free（UAF，釋放後使用）
 type: concept
 created: 2026-10-22
-updated: 2026-10-22
-tags: [memory-safety, c, uaf, dangling-pointer, asan, cwe-416]
+updated: 2026-10-31
+tags: [memory-safety, c, uaf, dangling-pointer, asan, cwe-416, rcu]
 sources:
   - src/02_uaf.c
   - "AddressSanitizer 實跑輸出（本機 gcc 16.2, 2026-10-22）"
   - "CWE-416: Use After Free"
+  - "CVE-2026-98432 修補 commit e3f33b0a1d89（Eric Dumazet, 2026-10-01）"
 ---
 
 # Use-After-Free（UAF，釋放後使用）
@@ -93,12 +94,49 @@ free(u);
 u = NULL;        // free 後立刻 NULL：之後誤用會變成明確的 NULL 解參考（易抓），而非 UAF
 ```
 
+⚠️ **這招只在單執行緒有效。** 設成 NULL 的只有「你自己這份」指標；別的 thread 早就把位址抄進
+自己的區域變數，你碰不到。跨 thread 的情況見下一節。
+
 更根本的做法屬於設計層（所有權單一化、ownership 清楚），這也是 Rust 的 borrow checker
 在編譯期就擋掉 UAF 的核心思路——列入 [[待進行]] 的 Rust 對照。
+
+## 跨 thread 的生命週期 UAF（真實案例：CVE-2026-98432）
+
+上面的範例都是「同一個 thread 先 free 再讀」。kernel 裡更常見的是**兩顆 CPU 交錯**：
+
+```c
+/* CPU0：建立子 socket */
+newinet->inet_opt = ireq->ireq_opt;	/* 直接共用指標，沒複製 */
+
+				/* CPU1：收到重送的 SYN */
+				rcu_read_lock();
+				opt = ireq->ireq_opt;	/* 拿到同一塊 */
+
+/* CPU0：子 socket 被釋放 */
+kfree(inet_opt);			/* 當場還回去 */
+
+				len = opt->optlen;	/* UAF */
+				rcu_read_unlock();
+```
+
+兩個錯：
+
+1. **所有權沒切乾淨**：一塊記憶體兩個擁有者，沒複製、也沒 refcount（IPv6 版本有複製，所以沒中第一個洞）。
+2. **讀端守 RCU 規矩，free 端沒守**：讀的一方在 `rcu_read_lock()` 底下，但 destructor 用 plain `kfree()`。
+
+這不是「沒同步」——兩邊都有同步機制，是 **free 的時間點**錯了。所以它跟計數器 `++` 那種
+lost update 是不同類別（見 `src/race_demo.c` 檔頭）。
+
+修法（2 行）：`net/ipv4/af_inet.c` 的 `inet_sock_destruct()` 與 `net/ipv4/tcp_ipv4.c` 的
+`tcp_v4_reqsk_destructor()` 把 `kfree()` 換成 `kfree_rcu()`。本機 v7.0 樹對應
+`net/ipv4/af_inet.c:165`、`net/ipv4/tcp_ipv4.c:1232` (v7.0)。為什麼這樣就夠——見 [[rcu]]。
+
+偵測：ASan 只有在交錯剛好踩中那一次才抓得到；kernel 端靠 KASAN＋壓力測試、或 KCSAN 抓競爭。
 
 ## See Also
 
 - [[dangling-pointer]] — UAF 的前置概念（指標為何會懸空）
 - [[double-free]] — free 兩次，allocator metadata 被玩壞
 - [[error-path-corruption]] — OOM/錯誤路徑的記憶體毀損（PHP 另一個 CVE 的類別）
+- [[rcu]] — kernel 的「延後 free」機制（`~/Documents/linux_kernel/wiki/concepts/rcu.md`）
 - [[index]] — 本系列目錄
